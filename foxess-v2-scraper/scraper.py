@@ -160,7 +160,7 @@ def scrape_data():
 
 
 def parse_foxess_data(raw_data):
-    """Parse raw data."""
+    """Parse raw data from Foxess dashboard."""
     all_text = raw_data.get('all_text', [])
     
     result = {
@@ -178,84 +178,88 @@ def parse_foxess_data(raw_data):
         'battery_discharge_today': 0.0,
     }
     
-    _LOGGER.info(f"Found {len(all_text)} text elements")
+    _LOGGER.info(f"Parsing {len(all_text)} text elements")
+    
+    import re
     
     for i, text in enumerate(all_text):
-        text_lower = text.lower()
+        text_lower = text.lower().strip()
         
-        # Battery SOC - look for percentage
-        if '%' in text and len(text) < 10:
-            try:
-                soc = float(text.replace('%', '').strip())
-                if 0 <= soc <= 100:
-                    result['battery_soc'] = soc
-                    _LOGGER.debug(f"Found SOC: {soc}%")
-            except:
-                pass
+        # Get context (previous and next text elements)
+        prev_text = all_text[i-1].lower() if i > 0 else ""
+        next_text = all_text[i+1].lower() if i < len(all_text) - 1 else ""
+        prev2_text = all_text[i-2].lower() if i > 1 else ""
         
-        # Power values - look for kW or W
-        if 'kw' in text_lower:
-            try:
-                # Extract number before kW
-                import re
-                match = re.search(r'([-+]?\d*\.?\d+)\s*kw', text_lower)
-                if match:
-                    value = float(match.group(1))
-                    
-                    # Determine what this power value represents based on nearby text
-                    context = ' '.join(all_text[max(0, i-2):min(len(all_text), i+3)]).lower()
-                    
-                    if 'pv' in context or 'solar' in context or 'generation' in context:
-                        result['pv_power'] = abs(value)
-                        _LOGGER.debug(f"Found PV Power: {value} kW")
-                    elif 'battery' in context or 'bat' in context:
-                        result['battery_power'] = value  # Can be negative (discharging)
-                        _LOGGER.debug(f"Found Battery Power: {value} kW")
-                    elif 'grid' in context or 'mains' in context:
-                        result['grid_power'] = value  # Negative = export, Positive = import
-                        _LOGGER.debug(f"Found Grid Power: {value} kW")
-                    elif 'load' in context or 'consumption' in context or 'home' in context:
-                        result['load_power'] = abs(value)
-                        _LOGGER.debug(f"Found Load Power: {value} kW")
-                    elif 'inverter' in context:
-                        result['inverter_power'] = abs(value)
-                        _LOGGER.debug(f"Found Inverter Power: {value} kW")
-            except Exception as e:
-                _LOGGER.debug(f"Error parsing kW value '{text}': {e}")
+        # Battery SOC - look for "SOC: 85 %" or just "85%"
+        if 'soc' in prev_text or 'soc' in text_lower:
+            match = re.search(r'(\d+)\s*%', text)
+            if match:
+                result['battery_soc'] = float(match.group(1))
+                _LOGGER.debug(f"Found Battery SOC: {match.group(1)}%")
         
-        # Energy values - look for kWh with "today" or "total"
-        if 'kwh' in text_lower:
-            try:
-                import re
-                match = re.search(r'(\d*\.?\d+)\s*kwh', text_lower)
-                if match:
-                    value = float(match.group(1))
-                    
-                    # Look at surrounding context
-                    context = ' '.join(all_text[max(0, i-3):min(len(all_text), i+3)]).lower()
-                    
-                    if 'today' in context or 'day' in context:
-                        if 'yield' in context or 'generation' in context or 'pv' in context:
-                            result['energy_today'] = value
-                            _LOGGER.debug(f"Found Energy Today: {value} kWh")
-                        elif 'feed' in context or 'export' in context:
-                            result['feed_in_energy_today'] = value
-                            _LOGGER.debug(f"Found Feed-in Today: {value} kWh")
-                        elif 'consumption' in context or 'import' in context or 'grid' in context:
-                            result['grid_consumption_today'] = value
-                            _LOGGER.debug(f"Found Grid Consumption Today: {value} kWh")
-                        elif 'charge' in context and 'battery' in context:
-                            result['battery_charge_today'] = value
-                            _LOGGER.debug(f"Found Battery Charge Today: {value} kWh")
-                        elif 'discharge' in context and 'battery' in context:
-                            result['battery_discharge_today'] = value
-                            _LOGGER.debug(f"Found Battery Discharge Today: {value} kWh")
-                    elif 'total' in context:
-                        if 'yield' in context or 'generation' in context:
-                            result['energy_total'] = value
-                            _LOGGER.debug(f"Found Energy Total: {value} kWh")
-            except Exception as e:
-                _LOGGER.debug(f"Error parsing kWh value '{text}': {e}")
+        # Solar/PV Power - look for "Solar" label followed by kW value
+        if 'solar' in prev_text or 'solar' in prev2_text:
+            match = re.search(r'([\d.]+)\s*kw', text_lower)
+            if match:
+                result['pv_power'] = float(match.group(1))
+                _LOGGER.debug(f"Found Solar Power: {match.group(1)} kW")
+        
+        # Load Power - look for "Load" label followed by kW value
+        if 'load' in prev_text or 'load' in prev2_text:
+            match = re.search(r'([\d.]+)\s*kw', text_lower)
+            if match:
+                result['load_power'] = float(match.group(1))
+                _LOGGER.debug(f"Found Load Power: {match.group(1)} kW")
+        
+        # Grid Power - look for "Grid Importing" or "Grid Exporting"
+        if 'grid' in prev_text and ('import' in prev_text or 'export' in prev_text):
+            # Can be in W or kW
+            match_kw = re.search(r'([\d.]+)\s*kw', text_lower)
+            match_w = re.search(r'([\d.]+)\s*w', text_lower)
+            if match_kw:
+                # Positive for import, negative for export
+                value = float(match_kw.group(1))
+                result['grid_power'] = value if 'import' in prev_text else -value
+                _LOGGER.debug(f"Found Grid Power: {value} kW ({'import' if 'import' in prev_text else 'export'})")
+            elif match_w and not match_kw:  # Only if not kW
+                value = float(match_w.group(1)) / 1000  # Convert W to kW
+                result['grid_power'] = value if 'import' in prev_text else -value
+                _LOGGER.debug(f"Found Grid Power: {value} kW (from W)")
+        
+        # Battery Charging/Discharging Power
+        if 'charging' in prev_text or 'charging' in text_lower:
+            match = re.search(r'([\d.]+)\s*kw', text_lower)
+            if match:
+                result['battery_power'] = float(match.group(1))  # Positive = charging
+                _LOGGER.debug(f"Found Battery Charging: {match.group(1)} kW")
+        elif 'discharging' in prev_text or 'discharging' in text_lower:
+            match = re.search(r'([\d.]+)\s*kw', text_lower)
+            if match:
+                result['battery_power'] = -float(match.group(1))  # Negative = discharging
+                _LOGGER.debug(f"Found Battery Discharging: {match.group(1)} kW")
+        
+        # PV Yield - look for "PV Yield" or "PV Yield Today/Total"
+        if 'pv yield' in prev_text or 'pv yield' in prev2_text:
+            # Format: "3.8 / 8.8" (Today / Total)
+            match = re.search(r'([\d.]+)\s*/\s*([\d.]+)', text)
+            if match:
+                result['energy_today'] = float(match.group(1))
+                result['energy_total'] = float(match.group(2))
+                _LOGGER.debug(f"Found PV Yield: {match.group(1)} / {match.group(2)} kWh")
+        
+        # Feed-in Energy
+        if 'feed' in prev_text or 'feed-in' in prev_text:
+            match = re.search(r'([\d.]+)\s*/\s*([\d.]+)', text)
+            if match:
+                result['feed_in_energy_today'] = float(match.group(1))
+                _LOGGER.debug(f"Found Feed-in: {match.group(1)} kWh today")
+        
+        # Consumption
+        if 'consumption' in prev_text:
+            match = re.search(r'([\d.]+)\s*/\s*([\d.]+)', text)
+            if match:
+                result['grid_consumption_today'] = float(match.group(1))
+                _LOGGER.debug(f"Found Consumption: {match.group(1)} kWh today")
     
     return result
 
