@@ -1,0 +1,25 @@
+name: Foxess V2 Scraper
+version: 1.0.0
+slug: foxess_v2_scraper
+description: Browser-based scraper for Foxess V2 solar data
+url: https://github.com/yourusername/foxess-v2-addon
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+init: false
+options:
+  username: ""
+  password: ""
+  port: 8099
+schema:
+  username: str
+  password: str
+  port: port
+ports:
+  8099/tcp: 8099
+ports_description:
+  8099/tcp: Web API for scraper
+image: ghcr.io/{arch}-foxess-v2-scraper
