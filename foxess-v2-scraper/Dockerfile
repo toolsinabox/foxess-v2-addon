@@ -2,7 +2,12 @@ ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
 # Install Python and dependencies
-RUN apk add --no-cache \\\n    python3 \\\n    py3-pip \\\n    chromium \\\n    chromium-chromedriver \\\n    bash
+RUN apk add --no-cache \
+    python3 \
+    py3-pip \
+    chromium \
+    chromium-chromedriver \
+    bash
 
 # Set work directory
 WORKDIR /app
