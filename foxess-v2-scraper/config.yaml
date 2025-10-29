@@ -1,14 +1,12 @@
 name: Foxess V2 Scraper
-version: 1.0.0
+version: 1.0.2
 slug: foxess_v2_scraper
 description: Browser-based scraper for Foxess V2 solar data
 url: https://github.com/toolsinabox/foxess-v2-addon
 arch:
   - aarch64
   - amd64
-  - armhf
   - armv7
-  - i386
 init: false
 options:
   username: ""
@@ -16,16 +14,14 @@ options:
   port: 8099
 schema:
   username: str
-  password: str
+  password: password
   port: port
 ports:
   8099/tcp: 8099
 ports_description:
   8099/tcp: Web API for scraper
 build_from:
-  aarch64: "ghcr.io/home-assistant/aarch64-base-python:3.11"
-  amd64: "ghcr.io/home-assistant/amd64-base-python:3.11"
-  armhf: "ghcr.io/home-assistant/armhf-base-python:3.11"
-  armv7: "ghcr.io/home-assistant/armv7-base-python:3.11"
-  i386: "ghcr.io/home-assistant/i386-base-python:3.11"
+  aarch64: "ghcr.io/home-assistant/aarch64-base:latest"
+  amd64: "ghcr.io/home-assistant/amd64-base:latest"
+  armv7: "ghcr.io/home-assistant/armv7-base:latest"
 

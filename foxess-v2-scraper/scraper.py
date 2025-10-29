@@ -1,120 +1,107 @@
-"""Foxess V2 Scraper Add-on - Web API."""
+"""Foxess V2 Scraper Add-on using Selenium."""
 import asyncio
 import os
 import json
+import time
 from aiohttp import web
-from playwright.async_api import async_playwright
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
 import logging
 
 logging.basicConfig(level=logging.INFO)
 _LOGGER = logging.getLogger(__name__)
 
-# Get config from environment
+# Get config
 USERNAME = os.getenv('FOXESS_USERNAME')
 PASSWORD = os.getenv('FOXESS_PASSWORD')
 PORT = int(os.getenv('FOXESS_PORT', 8099))
 
-# Cache for browser session
-browser_instance = None
-page_instance = None
-last_login_time = 0
+# Browser instance
+driver = None
+last_login = 0
 
 
-async def get_browser_page():
-    """Get or create browser page."""
-    global browser_instance, page_instance, last_login_time
+def get_driver():
+    """Get or create Selenium driver."""
+    global driver, last_login
     
-    current_time = asyncio.get_event_loop().time()
+    current_time = time.time()
     
-    # Reuse session if less than 4 minutes old
-    if page_instance and (current_time - last_login_time) < 240:
-        return page_instance
+    # Reuse if less than 4 minutes old
+    if driver and (current_time - last_login) < 240:
+        return driver
     
-    # Close old session
-    if page_instance:
+    # Close old
+    if driver:
         try:
-            await page_instance.close()
+            driver.quit()
         except:
             pass
     
-    if browser_instance:
-        try:
-            await browser_instance.close()
-        except:
-            pass
+    _LOGGER.info("Starting browser...")
     
-    # Create new browser session
-    _LOGGER.info("Starting new browser session...")
-    playwright = await async_playwright().start()
+    options = Options()
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
     
-    browser_instance = await playwright.chromium.launch(
-        headless=True,
-        args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-    )
-    
-    context = await browser_instance.new_context(
-        viewport={'width': 1920, 'height': 1080},
-        user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    )
-    
-    page_instance = await context.new_page()
+    driver = webdriver.Chrome(options=options)
     
     # Login
-    _LOGGER.info("Logging in to Foxess V2...")
-    await page_instance.goto('https://www.foxesscloud.com/v2/', wait_until='networkidle', timeout=60000)
-    await asyncio.sleep(3)
+    _LOGGER.info("Logging in...")
+    driver.get('https://www.foxesscloud.com/v2/')
+    time.sleep(3)
     
-    await page_instance.fill('input[type="text"], input[type="email"]', USERNAME)
-    await page_instance.fill('input[type="password"]', PASSWORD)
-    await asyncio.sleep(1)
+    driver.find_element(By.CSS_SELECTOR, 'input[type="text"], input[type="email"]').send_keys(USERNAME)
+    driver.find_element(By.CSS_SELECTOR, 'input[type="password"]').send_keys(PASSWORD)
+    time.sleep(1)
     
-    await page_instance.click('button:has-text("Log In"), button:has-text("Login"), button[type="submit"]')
-    await asyncio.sleep(8)
+    driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]').click()
+    time.sleep(8)
     
-    current_url = page_instance.url
-    if 'login' in current_url.lower():
-        _LOGGER.error("Login failed!")
+    if 'login' in driver.current_url.lower():
         raise Exception("Login failed")
     
     _LOGGER.info("Login successful!")
-    last_login_time = current_time
+    last_login = current_time
     
-    return page_instance
+    return driver
 
 
-async def scrape_data(page):
+def scrape_data():
     """Scrape data from dashboard."""
     _LOGGER.info("Scraping data...")
     
-    await asyncio.sleep(3)
+    driver = get_driver()
+    time.sleep(3)
     
-    data = await page.evaluate("""
-        () => {
-            const result = {};
-            
-            // Extract all text data
-            const textData = {};
-            document.querySelectorAll('[class*="value"], [class*="data"], [class*="power"]').forEach((el, i) => {
-                const text = el.textContent.trim();
-                if (text && text.length < 50) {
-                    textData[`element_${i}`] = text;
-                }
-            });
-            
-            result.text_data = textData;
-            return result;
-        }
+    # Extract data using JavaScript
+    data = driver.execute_script("""
+        const result = {};
+        const textData = {};
+        document.querySelectorAll('[class*="value"], [class*="data"], [class*="power"]').forEach((el, i) => {
+            const text = el.textContent.trim();
+            if (text && text.length < 50) {
+                textData[`element_${i}`] = text;
+            }
+        });
+        result.text_data = textData;
+        return result;
     """)
     
-    # Parse the data
+    # Parse data
     parsed = parse_foxess_data(data)
     
-    _LOGGER.info(f"Scraped data: {parsed}")
+    _LOGGER.info(f"Scraped: {parsed}")
     return parsed
 
 
 def parse_foxess_data(raw_data):
-    """Parse raw data into structured format."""
+    """Parse raw data."""
     text_data = raw_data.get('text_data', {})
     
     result = {
@@ -132,46 +119,20 @@ def parse_foxess_data(raw_data):
         'battery_discharge_today': 0.0,
     }
     
-    # Parse values from text_data
     for key, value in text_data.items():
         value_str = str(value).lower()
         
-        # Battery SOC
         if 'soc:' in value_str and '%' in value_str:
             try:
-                soc_value = value_str.replace('soc:', '').replace('%', '').strip()
-                result['battery_soc'] = float(soc_value)
+                result['battery_soc'] = float(value_str.replace('soc:', '').replace('%', '').strip())
             except:
                 pass
         
-        # PV Power (look for kW values)
-        if 'kw' in value_str and 'pv' not in value_str:
+        if 'kw' in value_str:
             try:
                 power = value_str.replace('kw', '').strip()
                 if '/' not in power:
                     result['pv_power'] = float(power)
-            except:
-                pass
-        
-        # Extract energy values
-        if '/' in value_str and 'kwh' in value_str.lower():
-            try:
-                parts = value_str.split('/')
-                if len(parts) == 2:
-                    today = float(parts[0].replace('kwh', '').strip())
-                    total = float(parts[1].replace('kwh', '').strip())
-                    
-                    # Determine which energy type based on context
-                    prev_key_idx = int(key.split('_')[1]) - 1
-                    prev_text = text_data.get(f'element_{prev_key_idx}', '').lower()
-                    
-                    if 'pv' in prev_text or 'yield' in prev_text:
-                        result['energy_today'] = today
-                        result['energy_total'] = total
-                    elif 'feed' in prev_text:
-                        result['feed_in_energy_today'] = today
-                    elif 'consumption' in prev_text:
-                        result['grid_consumption_today'] = today
             except:
                 pass
     
@@ -179,45 +140,32 @@ def parse_foxess_data(raw_data):
 
 
 async def handle_get_data(request):
-    """Handle GET /data request."""
+    """Handle GET /data."""
     try:
-        page = await get_browser_page()
-        data = await scrape_data(page)
-        
-        return web.json_response({
-            'status': 'success',
-            'data': data
-        })
-    
+        data = await asyncio.get_event_loop().run_in_executor(None, scrape_data)
+        return web.json_response({'status': 'success', 'data': data})
     except Exception as e:
-        _LOGGER.error(f"Error getting data: {e}")
-        return web.json_response({
-            'status': 'error',
-            'message': str(e)
-        }, status=500)
+        _LOGGER.error(f"Error: {e}")
+        return web.json_response({'status': 'error', 'message': str(e)}, status=500)
 
 
 async def handle_health(request):
-    """Handle GET /health request."""
+    """Handle GET /health."""
     return web.json_response({'status': 'ok'})
 
 
 async def main():
-    """Start the web server."""
+    """Start server."""
     app = web.Application()
     app.router.add_get('/data', handle_get_data)
     app.router.add_get('/health', handle_health)
     
     runner = web.AppRunner(app)
     await runner.setup()
-    
     site = web.TCPSite(runner, '0.0.0.0', PORT)
     await site.start()
     
-    _LOGGER.info(f"Foxess V2 Scraper running on port {PORT}")
-    _LOGGER.info(f"Username: {USERNAME}")
-    
-    # Keep running
+    _LOGGER.info(f"Scraper running on port {PORT}")
     await asyncio.Event().wait()
 
 

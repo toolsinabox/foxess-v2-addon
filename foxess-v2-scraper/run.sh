@@ -1,4 +1,4 @@
-#!/usr/bin/with-contenv bashio
+#!/usr/bin/env bashio
 
 bashio::log.info "Starting Foxess V2 Scraper..."
 
