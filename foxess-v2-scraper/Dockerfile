@@ -16,13 +16,19 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install Python packages
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 
 # Copy application files
 COPY run.sh /
 COPY scraper.py /app/
 
 RUN chmod a+x /run.sh
+
+# Set environment
+ENV PYTHONUNBUFFERED=1
+
+CMD [ "/run.sh" ]
+
 
 # Set environment
 ENV PYTHONUNBUFFERED=1
