@@ -135,17 +135,20 @@ def scrape_data():
     driver = get_driver()
     time.sleep(3)
     
-    # Extract data using JavaScript
+    # Extract data using JavaScript - get ALL text elements
     data = driver.execute_script("""
         const result = {};
-        const textData = {};
-        document.querySelectorAll('[class*="value"], [class*="data"], [class*="power"]').forEach((el, i) => {
+        const allText = [];
+        
+        // Get all visible text elements
+        document.querySelectorAll('div, span, p').forEach((el) => {
             const text = el.textContent.trim();
-            if (text && text.length < 50) {
-                textData[`element_${i}`] = text;
+            if (text && text.length < 100 && text.length > 0) {
+                allText.push(text);
             }
         });
-        result.text_data = textData;
+        
+        result.all_text = allText;
         return result;
     """)
     
@@ -158,7 +161,7 @@ def scrape_data():
 
 def parse_foxess_data(raw_data):
     """Parse raw data."""
-    text_data = raw_data.get('text_data', {})
+    all_text = raw_data.get('all_text', [])
     
     result = {
         'pv_power': 0.0,
@@ -175,22 +178,84 @@ def parse_foxess_data(raw_data):
         'battery_discharge_today': 0.0,
     }
     
-    for key, value in text_data.items():
-        value_str = str(value).lower()
+    _LOGGER.info(f"Found {len(all_text)} text elements")
+    
+    for i, text in enumerate(all_text):
+        text_lower = text.lower()
         
-        if 'soc:' in value_str and '%' in value_str:
+        # Battery SOC - look for percentage
+        if '%' in text and len(text) < 10:
             try:
-                result['battery_soc'] = float(value_str.replace('soc:', '').replace('%', '').strip())
+                soc = float(text.replace('%', '').strip())
+                if 0 <= soc <= 100:
+                    result['battery_soc'] = soc
+                    _LOGGER.debug(f"Found SOC: {soc}%")
             except:
                 pass
         
-        if 'kw' in value_str:
+        # Power values - look for kW or W
+        if 'kw' in text_lower:
             try:
-                power = value_str.replace('kw', '').strip()
-                if '/' not in power:
-                    result['pv_power'] = float(power)
-            except:
-                pass
+                # Extract number before kW
+                import re
+                match = re.search(r'([-+]?\d*\.?\d+)\s*kw', text_lower)
+                if match:
+                    value = float(match.group(1))
+                    
+                    # Determine what this power value represents based on nearby text
+                    context = ' '.join(all_text[max(0, i-2):min(len(all_text), i+3)]).lower()
+                    
+                    if 'pv' in context or 'solar' in context or 'generation' in context:
+                        result['pv_power'] = abs(value)
+                        _LOGGER.debug(f"Found PV Power: {value} kW")
+                    elif 'battery' in context or 'bat' in context:
+                        result['battery_power'] = value  # Can be negative (discharging)
+                        _LOGGER.debug(f"Found Battery Power: {value} kW")
+                    elif 'grid' in context or 'mains' in context:
+                        result['grid_power'] = value  # Negative = export, Positive = import
+                        _LOGGER.debug(f"Found Grid Power: {value} kW")
+                    elif 'load' in context or 'consumption' in context or 'home' in context:
+                        result['load_power'] = abs(value)
+                        _LOGGER.debug(f"Found Load Power: {value} kW")
+                    elif 'inverter' in context:
+                        result['inverter_power'] = abs(value)
+                        _LOGGER.debug(f"Found Inverter Power: {value} kW")
+            except Exception as e:
+                _LOGGER.debug(f"Error parsing kW value '{text}': {e}")
+        
+        # Energy values - look for kWh with "today" or "total"
+        if 'kwh' in text_lower:
+            try:
+                import re
+                match = re.search(r'(\d*\.?\d+)\s*kwh', text_lower)
+                if match:
+                    value = float(match.group(1))
+                    
+                    # Look at surrounding context
+                    context = ' '.join(all_text[max(0, i-3):min(len(all_text), i+3)]).lower()
+                    
+                    if 'today' in context or 'day' in context:
+                        if 'yield' in context or 'generation' in context or 'pv' in context:
+                            result['energy_today'] = value
+                            _LOGGER.debug(f"Found Energy Today: {value} kWh")
+                        elif 'feed' in context or 'export' in context:
+                            result['feed_in_energy_today'] = value
+                            _LOGGER.debug(f"Found Feed-in Today: {value} kWh")
+                        elif 'consumption' in context or 'import' in context or 'grid' in context:
+                            result['grid_consumption_today'] = value
+                            _LOGGER.debug(f"Found Grid Consumption Today: {value} kWh")
+                        elif 'charge' in context and 'battery' in context:
+                            result['battery_charge_today'] = value
+                            _LOGGER.debug(f"Found Battery Charge Today: {value} kWh")
+                        elif 'discharge' in context and 'battery' in context:
+                            result['battery_discharge_today'] = value
+                            _LOGGER.debug(f"Found Battery Discharge Today: {value} kWh")
+                    elif 'total' in context:
+                        if 'yield' in context or 'generation' in context:
+                            result['energy_total'] = value
+                            _LOGGER.debug(f"Found Energy Total: {value} kWh")
+            except Exception as e:
+                _LOGGER.debug(f"Error parsing kWh value '{text}': {e}")
     
     return result
 
