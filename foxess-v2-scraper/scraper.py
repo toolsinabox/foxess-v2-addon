@@ -30,8 +30,8 @@ def get_driver():
     
     current_time = time.time()
     
-    # Reuse if less than 4 minutes old
-    if driver and (current_time - last_login) < 240:
+    # Reuse if less than 6 minutes old (longer than integration's 5-min poll)
+    if driver and (current_time - last_login) < 360:
         return driver
     
     # Close old
