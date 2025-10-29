@@ -17,17 +17,6 @@ Home Assistant add-on repository for Foxess V2 solar inverter integration.
 
 Browser-based scraper that logs into Foxess Cloud V2 and extracts solar data.
 
-**Features:**
-- Headless Chrome browser automation
-- Automatic login and session management
-- HTTP API for integration access
-- Real-time solar data extraction
-
-**Configuration:**
-- `username`: Your Foxess Cloud email
-- `password`: Your Foxess Cloud password
-- `port`: API port (default: 8099)
-
 ## Support
 
 For issues, visit: https://github.com/toolsinabox/foxess-v2-addon/issues
