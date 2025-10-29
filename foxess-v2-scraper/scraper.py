@@ -58,17 +58,50 @@ def get_driver():
     # Login
     _LOGGER.info("Logging in...")
     driver.get('https://www.foxesscloud.com/v2/')
-    time.sleep(3)
+    time.sleep(5)
     
-    driver.find_element(By.CSS_SELECTOR, 'input[type="text"], input[type="email"]').send_keys(USERNAME)
-    driver.find_element(By.CSS_SELECTOR, 'input[type="password"]').send_keys(PASSWORD)
-    time.sleep(1)
+    # Find and fill username
+    username_input = driver.find_element(By.CSS_SELECTOR, 'input[type="text"], input[type="email"]')
+    username_input.send_keys(USERNAME)
     
-    driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]').click()
-    time.sleep(8)
+    # Find and fill password  
+    password_input = driver.find_element(By.CSS_SELECTOR, 'input[type="password"]')
+    password_input.send_keys(PASSWORD)
+    
+    time.sleep(2)
+    
+    # Try multiple selectors for login button
+    login_button = None
+    button_selectors = [
+        'button[type="submit"]',
+        'button:contains("Log In")',
+        'button:contains("Login")',
+        '//button[contains(text(), "Log")]',
+        '//button',
+    ]
+    
+    for selector in button_selectors:
+        try:
+            if selector.startswith('//'):
+                login_button = driver.find_element(By.XPATH, selector)
+            else:
+                login_button = driver.find_element(By.CSS_SELECTOR, selector)
+            
+            if login_button:
+                _LOGGER.info(f"Found login button with selector: {selector}")
+                break
+        except:
+            continue
+    
+    if not login_button:
+        _LOGGER.error("Could not find login button")
+        raise Exception("Login button not found")
+    
+    login_button.click()
+    time.sleep(10)
     
     if 'login' in driver.current_url.lower():
-        raise Exception("Login failed")
+        raise Exception("Login failed - still on login page")
     
     _LOGGER.info("Login successful!")
     last_login = current_time
