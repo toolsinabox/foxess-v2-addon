@@ -7,7 +7,8 @@ RUN apk add --no-cache \
     py3-pip \
     chromium \
     chromium-chromedriver \
-    bash
+    bash \
+    jq
 
 # Set work directory
 WORKDIR /app
