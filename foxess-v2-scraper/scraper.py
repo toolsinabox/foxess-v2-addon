@@ -49,7 +49,11 @@ def get_driver():
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
     
-    driver = webdriver.Chrome(options=options)
+    # Use system chromedriver
+    from selenium.webdriver.chrome.service import Service
+    service = Service(executable_path='/usr/bin/chromedriver')
+    
+    driver = webdriver.Chrome(service=service, options=options)
     
     # Login
     _LOGGER.info("Logging in...")
