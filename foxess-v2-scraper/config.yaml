@@ -1,5 +1,5 @@
 name: Foxess V2 Scraper
-version: 1.1.0
+version: 1.1.1
 slug: foxess_v2_scraper
 description: Browser-based scraper for Foxess V2 solar data
 url: https://github.com/toolsinabox/foxess-v2-addon
@@ -24,5 +24,4 @@ build_from:
   aarch64: "ghcr.io/home-assistant/aarch64-base:latest"
   amd64: "ghcr.io/home-assistant/amd64-base:latest"
   armv7: "ghcr.io/home-assistant/armv7-base:latest"
-
 

@@ -29,9 +29,3 @@ RUN chmod a+x /run.sh
 ENV PYTHONUNBUFFERED=1
 
 CMD [ "/run.sh" ]
-
-
-# Set environment
-ENV PYTHONUNBUFFERED=1
-
-CMD [ "/run.sh" ]

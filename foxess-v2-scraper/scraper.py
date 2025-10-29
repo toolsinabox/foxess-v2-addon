@@ -25,7 +25,7 @@ last_login = 0
 
 
 def get_driver():
-    """Get or create Selenium driver."""
+    """Get or create Selenium driver with robust login."""
     global driver, last_login
     
     current_time = time.time()
@@ -52,80 +52,119 @@ def get_driver():
     
     # Use system chromedriver
     from selenium.webdriver.chrome.service import Service
-    service = Service(executable_path='/usr/bin/chromedriver')
     
+    service = Service(executable_path='/usr/bin/chromedriver')
     driver = webdriver.Chrome(service=service, options=options)
+    wait = WebDriverWait(driver, 20)
     
     # Login
-    _LOGGER.info("Logging in...")
+    _LOGGER.info("Logging in to Foxess V2...")
     driver.get('https://www.foxesscloud.com/v2/')
-    time.sleep(8)  # Wait for page to fully load
     
-    # Save screenshot for debugging
+    # Wait for page to fully load
+    time.sleep(8)
+    
     try:
-        driver.save_screenshot('/tmp/foxess_page.png')
-        _LOGGER.info("Screenshot saved to /tmp/foxess_page.png")
-    except:
-        pass
-    
-    # Find and fill username
-    _LOGGER.info("Finding username field...")
-    username_input = driver.find_element(By.CSS_SELECTOR, 'input[type="text"], input[type="email"]')
-    username_input.clear()
-    username_input.send_keys(USERNAME)
-    time.sleep(1)
-    
-    # Find and fill password  
-    _LOGGER.info("Finding password field...")
-    password_input = driver.find_element(By.CSS_SELECTOR, 'input[type="password"]')
-    password_input.clear()
-    password_input.send_keys(PASSWORD)
-    time.sleep(2)
-    
-    # Find all buttons and log them
-    all_buttons = driver.find_elements(By.TAG_NAME, 'button')
-    _LOGGER.info(f"Found {len(all_buttons)} buttons on page")
-    for i, btn in enumerate(all_buttons):
-        _LOGGER.info(f"Button {i}: text='{btn.text}', type={btn.get_attribute('type')}, class={btn.get_attribute('class')}")
-    
-    # Try to find login button by text
-    login_button = None
-    for btn in all_buttons:
-        btn_text = btn.text.lower()
-        if 'log' in btn_text or 'sign' in btn_text or btn.get_attribute('type') == 'submit':
-            login_button = btn
-            _LOGGER.info(f"Selected button: '{btn.text}'")
-            break
-    
-    if not login_button and all_buttons:
-        # Just click the first button
-        login_button = all_buttons[0]
-        _LOGGER.info("Using first button as fallback")
-    
-    if not login_button:
-        _LOGGER.error("Could not find any login button")
-        raise Exception("Login button not found")
-    
-    _LOGGER.info("Clicking login button...")
-    login_button.click()
-    time.sleep(12)  # Wait longer for login
-    
-    current_url = driver.current_url
-    _LOGGER.info(f"After login, URL is: {current_url}")
-    
-    if 'login' in current_url.lower():
-        _LOGGER.error("Login failed - still on login page")
+        # Wait for username field to be visible
+        _LOGGER.info("Waiting for login form...")
+        username_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="text"], input[type="email"]')))
+        password_input = driver.find_element(By.CSS_SELECTOR, 'input[type="password"]')
+        
+        _LOGGER.info("Filling credentials...")
+        username_input.clear()
+        username_input.send_keys(USERNAME)
+        time.sleep(1)
+        
+        password_input.clear()
+        password_input.send_keys(PASSWORD)
+        time.sleep(2)
+        
+        # Method 1: Find and click the "Log In" button using multiple approaches
+        login_success = False
+        
+        # Try 1: Click button with text "Log In"
         try:
-            driver.save_screenshot('/tmp/foxess_after_login.png')
-            _LOGGER.info("After-login screenshot saved")
-        except:
-            pass
-        raise Exception("Login failed - still on login page")
-    
-    _LOGGER.info("Login successful!")
-    last_login = current_time
-    
-    return driver
+            _LOGGER.info("Attempt 1: Finding 'Log In' button by text...")
+            buttons = driver.find_elements(By.TAG_NAME, 'button')
+            for btn in buttons:
+                if 'log' in btn.text.lower() and 'in' in btn.text.lower():
+                    _LOGGER.info(f"Found button with text: '{btn.text}'")
+                    btn.click()
+                    login_success = True
+                    break
+        except Exception as e:
+            _LOGGER.debug(f"Method 1 failed: {e}")
+        
+        # Try 2: JavaScript click on button
+        if not login_success:
+            try:
+                _LOGGER.info("Attempt 2: JavaScript click...")
+                buttons = driver.find_elements(By.TAG_NAME, 'button')
+                for btn in buttons:
+                    if 'log' in btn.text.lower() and 'in' in btn.text.lower():
+                        driver.execute_script("arguments[0].click();", btn)
+                        login_success = True
+                        break
+            except Exception as e:
+                _LOGGER.debug(f"Method 2 failed: {e}")
+        
+        # Try 3: Submit form directly
+        if not login_success:
+            try:
+                _LOGGER.info("Attempt 3: Submitting form...")
+                form = driver.find_element(By.TAG_NAME, 'form')
+                form.submit()
+                login_success = True
+            except Exception as e:
+                _LOGGER.debug(f"Method 3 failed: {e}")
+        
+        # Try 4: Press Enter on password field
+        if not login_success:
+            try:
+                _LOGGER.info("Attempt 4: Pressing Enter on password field...")
+                from selenium.webdriver.common.keys import Keys
+                password_input.send_keys(Keys.RETURN)
+                login_success = True
+            except Exception as e:
+                _LOGGER.debug(f"Method 4 failed: {e}")
+        
+        if not login_success:
+            raise Exception("All login methods failed")
+        
+        _LOGGER.info("Login button clicked, waiting for redirect...")
+        time.sleep(15)  # Wait for login to complete
+        
+        current_url = driver.current_url
+        _LOGGER.info(f"After login, URL is: {current_url}")
+        
+        # Check if login was successful
+        if 'login' in current_url.lower():
+            # Try one more time with longer wait
+            _LOGGER.warning("Still on login page, waiting longer...")
+            time.sleep(10)
+            current_url = driver.current_url
+            
+            if 'login' in current_url.lower():
+                _LOGGER.error("Login failed - still on login page after 25 seconds")
+                try:
+                    driver.save_screenshot('/tmp/foxess_login_failed.png')
+                except:
+                    pass
+                raise Exception("Login failed - credentials may be incorrect or site changed")
+        
+        _LOGGER.info("✓ Login successful!")
+        last_login = current_time
+        
+        return driver
+        
+    except Exception as e:
+        _LOGGER.error(f"Login error: {e}")
+        if driver:
+            try:
+                driver.quit()
+            except:
+                pass
+        raise
 
 
 def scrape_data():
@@ -183,83 +222,106 @@ def parse_foxess_data(raw_data):
     import re
     
     for i, text in enumerate(all_text):
-        text_lower = text.lower().strip()
+        text_stripped = text.strip()
+        text_lower = text_stripped.lower()
         
-        # Get context (previous and next text elements)
+        # Get context
         prev_text = all_text[i-1].lower() if i > 0 else ""
         next_text = all_text[i+1].lower() if i < len(all_text) - 1 else ""
         prev2_text = all_text[i-2].lower() if i > 1 else ""
         
-        # Battery SOC - look for "SOC: 85 %" or just "85%"
-        if 'soc' in prev_text or 'soc' in text_lower:
-            match = re.search(r'(\d+)\s*%', text)
-            if match:
-                result['battery_soc'] = float(match.group(1))
-                _LOGGER.debug(f"Found Battery SOC: {match.group(1)}%")
+        # Battery SOC - look for percentage with "SOC" or "soc" nearby
+        if '%' in text_stripped:
+            if 'soc' in text_lower or 'soc' in prev_text or 'soc' in prev2_text:
+                match = re.search(r'(\d+)\s*%', text_stripped)
+                if match:
+                    result['battery_soc'] = float(match.group(1))
+                    _LOGGER.debug(f"Found Battery SOC: {match.group(1)}%")
         
-        # Solar/PV Power - look for "Solar" label followed by kW value
-        if 'solar' in prev_text or 'solar' in prev2_text:
-            match = re.search(r'([\d.]+)\s*kw', text_lower)
-            if match:
-                result['pv_power'] = float(match.group(1))
-                _LOGGER.debug(f"Found Solar Power: {match.group(1)} kW")
+        # Solar Power - look for "Solar" label, get NEXT element (not capacity!)
+        # Avoid "PV Capacity" which is in kWp
+        if 'solar' in text_lower and 'capacity' not in text_lower and 'kwp' not in next_text:
+            # Check next element for kW value
+            if i < len(all_text) - 1:
+                next_elem = all_text[i+1]
+                match = re.search(r'([\d.]+)\s*kw', next_elem.lower())
+                if match and 'kwp' not in next_elem.lower():
+                    result['pv_power'] = float(match.group(1))
+                    _LOGGER.debug(f"Found Solar Power: {match.group(1)} kW")
         
-        # Load Power - look for "Load" label followed by kW value
-        if 'load' in prev_text or 'load' in prev2_text:
-            match = re.search(r'([\d.]+)\s*kw', text_lower)
-            if match:
-                result['load_power'] = float(match.group(1))
-                _LOGGER.debug(f"Found Load Power: {match.group(1)} kW")
+        # Load Power
+        if 'load' in text_lower and 'kw' not in text_lower:
+            if i < len(all_text) - 1:
+                next_elem = all_text[i+1]
+                match = re.search(r'([\d.]+)\s*kw', next_elem.lower())
+                if match:
+                    result['load_power'] = float(match.group(1))
+                    _LOGGER.debug(f"Found Load Power: {match.group(1)} kW")
         
-        # Grid Power - look for "Grid Importing" or "Grid Exporting"
-        if 'grid' in prev_text and ('import' in prev_text or 'export' in prev_text):
-            # Can be in W or kW
-            match_kw = re.search(r'([\d.]+)\s*kw', text_lower)
-            match_w = re.search(r'([\d.]+)\s*w', text_lower)
-            if match_kw:
-                # Positive for import, negative for export
-                value = float(match_kw.group(1))
-                result['grid_power'] = value if 'import' in prev_text else -value
-                _LOGGER.debug(f"Found Grid Power: {value} kW ({'import' if 'import' in prev_text else 'export'})")
-            elif match_w and not match_kw:  # Only if not kW
-                value = float(match_w.group(1)) / 1000  # Convert W to kW
-                result['grid_power'] = value if 'import' in prev_text else -value
-                _LOGGER.debug(f"Found Grid Power: {value} kW (from W)")
+        # Grid Importing/Exporting
+        if 'grid' in text_lower and ('import' in text_lower or 'export' in text_lower):
+            if i < len(all_text) - 1:
+                next_elem = all_text[i+1]
+                # Can be W or kW
+                match_kw = re.search(r'([\d.]+)\s*kw', next_elem.lower())
+                match_w = re.search(r'([\d.]+)\s*w\b', next_elem.lower())
+                
+                if match_kw:
+                    value = float(match_kw.group(1))
+                    result['grid_power'] = value if 'import' in text_lower else -value
+                    _LOGGER.debug(f"Found Grid Power: {value} kW")
+                elif match_w and not match_kw:
+                    value = float(match_w.group(1)) / 1000
+                    result['grid_power'] = value if 'import' in text_lower else -value
+                    _LOGGER.debug(f"Found Grid Power: {value} kW (from W)")
         
-        # Battery Charging/Discharging Power
-        if 'charging' in prev_text or 'charging' in text_lower:
-            match = re.search(r'([\d.]+)\s*kw', text_lower)
-            if match:
-                result['battery_power'] = float(match.group(1))  # Positive = charging
-                _LOGGER.debug(f"Found Battery Charging: {match.group(1)} kW")
-        elif 'discharging' in prev_text or 'discharging' in text_lower:
-            match = re.search(r'([\d.]+)\s*kw', text_lower)
-            if match:
-                result['battery_power'] = -float(match.group(1))  # Negative = discharging
-                _LOGGER.debug(f"Found Battery Discharging: {match.group(1)} kW")
+        # Battery Charging/Discharging
+        if 'charging' in text_lower:
+            if i < len(all_text) - 1:
+                next_elem = all_text[i+1]
+                match = re.search(r'([\d.]+)\s*kw', next_elem.lower())
+                if match:
+                    result['battery_power'] = float(match.group(1))
+                    _LOGGER.debug(f"Found Battery Charging: {match.group(1)} kW")
+        elif 'discharging' in text_lower:
+            if i < len(all_text) - 1:
+                next_elem = all_text[i+1]
+                match = re.search(r'([\d.]+)\s*kw', next_elem.lower())
+                if match:
+                    result['battery_power'] = -float(match.group(1))
+                    _LOGGER.debug(f"Found Battery Discharging: {match.group(1)} kW")
         
-        # PV Yield - look for "PV Yield" or "PV Yield Today/Total"
-        if 'pv yield' in prev_text or 'pv yield' in prev2_text:
-            # Format: "3.8 / 8.8" (Today / Total)
-            match = re.search(r'([\d.]+)\s*/\s*([\d.]+)', text)
-            if match:
-                result['energy_today'] = float(match.group(1))
-                result['energy_total'] = float(match.group(2))
-                _LOGGER.debug(f"Found PV Yield: {match.group(1)} / {match.group(2)} kWh")
+        # PV Yield - format "3.8 / 8.8" with "Today/Total (kWh)" label
+        if 'pv yield' in text_lower or ('pv' in prev_text and 'yield' in prev_text):
+            # Look for slash pattern in next few elements
+            for j in range(i, min(i+3, len(all_text))):
+                elem = all_text[j]
+                match = re.search(r'([\d.]+)\s*/\s*([\d.]+)', elem)
+                if match:
+                    result['energy_today'] = float(match.group(1))
+                    result['energy_total'] = float(match.group(2))
+                    _LOGGER.debug(f"Found PV Yield: Today={match.group(1)}, Total={match.group(2)} kWh")
+                    break
         
-        # Feed-in Energy
-        if 'feed' in prev_text or 'feed-in' in prev_text:
-            match = re.search(r'([\d.]+)\s*/\s*([\d.]+)', text)
-            if match:
-                result['feed_in_energy_today'] = float(match.group(1))
-                _LOGGER.debug(f"Found Feed-in: {match.group(1)} kWh today")
+        # Feed-in Energy - format "0.1 / 5.9"
+        if 'feed' in text_lower and 'in' in text_lower:
+            for j in range(i, min(i+3, len(all_text))):
+                elem = all_text[j]
+                match = re.search(r'([\d.]+)\s*/\s*([\d.]+)', elem)
+                if match:
+                    result['feed_in_energy_today'] = float(match.group(1))
+                    _LOGGER.debug(f"Found Feed-in: {match.group(1)} kWh today")
+                    break
         
-        # Consumption
-        if 'consumption' in prev_text:
-            match = re.search(r'([\d.]+)\s*/\s*([\d.]+)', text)
-            if match:
-                result['grid_consumption_today'] = float(match.group(1))
-                _LOGGER.debug(f"Found Consumption: {match.group(1)} kWh today")
+        # Consumption - format "0.1 / 39.0"
+        if 'consumption' in text_lower:
+            for j in range(i, min(i+3, len(all_text))):
+                elem = all_text[j]
+                match = re.search(r'([\d.]+)\s*/\s*([\d.]+)', elem)
+                if match:
+                    result['grid_consumption_today'] = float(match.group(1))
+                    _LOGGER.debug(f"Found Consumption: {match.group(1)} kWh today")
+                    break
     
     return result
 
