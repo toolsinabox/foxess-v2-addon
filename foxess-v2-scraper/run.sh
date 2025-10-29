@@ -1,17 +1,23 @@
-#!/usr/bin/env bashio
+#!/usr/bin/env bash
+set -e
 
-bashio::log.info "Starting Foxess V2 Scraper..."
+echo "Starting Foxess V2 Scraper..."
 
-# Get options from config
-USERNAME=$(bashio::config 'username')
-PASSWORD=$(bashio::config 'password')
-PORT=$(bashio::config 'port')
+# Read config from /data/options.json (Home Assistant standard)
+CONFIG_PATH=/data/options.json
 
-export FOXESS_USERNAME="$USERNAME"
-export FOXESS_PASSWORD="$PASSWORD"
-export FOXESS_PORT="$PORT"
+if [ -f "$CONFIG_PATH" ]; then
+    export FOXESS_USERNAME=$(jq -r '.username' $CONFIG_PATH)
+    export FOXESS_PASSWORD=$(jq -r '.password' $CONFIG_PATH)
+    export FOXESS_PORT=$(jq -r '.port // 8099' $CONFIG_PATH)
+else
+    echo "Config file not found, using defaults"
+    export FOXESS_USERNAME=""
+    export FOXESS_PASSWORD=""
+    export FOXESS_PORT="8099"
+fi
 
-bashio::log.info "Starting scraper on port $PORT"
+echo "Starting scraper on port $FOXESS_PORT"
 
 # Run the scraper
 python3 /app/scraper.py
