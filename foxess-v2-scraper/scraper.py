@@ -48,6 +48,7 @@ def get_driver():
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
+    options.add_argument('--window-size=1920,1080')
     
     # Use system chromedriver
     from selenium.webdriver.chrome.service import Service
@@ -58,49 +59,67 @@ def get_driver():
     # Login
     _LOGGER.info("Logging in...")
     driver.get('https://www.foxesscloud.com/v2/')
-    time.sleep(5)
+    time.sleep(8)  # Wait for page to fully load
+    
+    # Save screenshot for debugging
+    try:
+        driver.save_screenshot('/tmp/foxess_page.png')
+        _LOGGER.info("Screenshot saved to /tmp/foxess_page.png")
+    except:
+        pass
     
     # Find and fill username
+    _LOGGER.info("Finding username field...")
     username_input = driver.find_element(By.CSS_SELECTOR, 'input[type="text"], input[type="email"]')
+    username_input.clear()
     username_input.send_keys(USERNAME)
+    time.sleep(1)
     
     # Find and fill password  
+    _LOGGER.info("Finding password field...")
     password_input = driver.find_element(By.CSS_SELECTOR, 'input[type="password"]')
+    password_input.clear()
     password_input.send_keys(PASSWORD)
-    
     time.sleep(2)
     
-    # Try multiple selectors for login button
-    login_button = None
-    button_selectors = [
-        'button[type="submit"]',
-        'button:contains("Log In")',
-        'button:contains("Login")',
-        '//button[contains(text(), "Log")]',
-        '//button',
-    ]
+    # Find all buttons and log them
+    all_buttons = driver.find_elements(By.TAG_NAME, 'button')
+    _LOGGER.info(f"Found {len(all_buttons)} buttons on page")
+    for i, btn in enumerate(all_buttons):
+        _LOGGER.info(f"Button {i}: text='{btn.text}', type={btn.get_attribute('type')}, class={btn.get_attribute('class')}")
     
-    for selector in button_selectors:
-        try:
-            if selector.startswith('//'):
-                login_button = driver.find_element(By.XPATH, selector)
-            else:
-                login_button = driver.find_element(By.CSS_SELECTOR, selector)
-            
-            if login_button:
-                _LOGGER.info(f"Found login button with selector: {selector}")
-                break
-        except:
-            continue
+    # Try to find login button by text
+    login_button = None
+    for btn in all_buttons:
+        btn_text = btn.text.lower()
+        if 'log' in btn_text or 'sign' in btn_text or btn.get_attribute('type') == 'submit':
+            login_button = btn
+            _LOGGER.info(f"Selected button: '{btn.text}'")
+            break
+    
+    if not login_button and all_buttons:
+        # Just click the first button
+        login_button = all_buttons[0]
+        _LOGGER.info("Using first button as fallback")
     
     if not login_button:
-        _LOGGER.error("Could not find login button")
+        _LOGGER.error("Could not find any login button")
         raise Exception("Login button not found")
     
+    _LOGGER.info("Clicking login button...")
     login_button.click()
-    time.sleep(10)
+    time.sleep(12)  # Wait longer for login
     
-    if 'login' in driver.current_url.lower():
+    current_url = driver.current_url
+    _LOGGER.info(f"After login, URL is: {current_url}")
+    
+    if 'login' in current_url.lower():
+        _LOGGER.error("Login failed - still on login page")
+        try:
+            driver.save_screenshot('/tmp/foxess_after_login.png')
+            _LOGGER.info("After-login screenshot saved")
+        except:
+            pass
         raise Exception("Login failed - still on login page")
     
     _LOGGER.info("Login successful!")
